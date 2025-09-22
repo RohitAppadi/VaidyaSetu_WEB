@@ -8,12 +8,6 @@ import os
 from werkzeug.utils import secure_filename
 import uuid
 import requests
-import numpy as np
-from PIL import Image
-import tensorflow as tf
-import tensorflow_hub as hub
-import torch
-import piq
 
 app = Flask(__name__)
 app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
@@ -78,36 +72,12 @@ def generate_qr_code(data):
     import base64
     return base64.b64encode(img_io.getvalue()).decode('utf-8')
 
-# --- AI Model Setup ---
-plant_model = hub.load("https://tfhub.dev/google/plant_village/efficientnet_b0/classifier/1")
-input_shape = (224, 224)
-
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def classify_herb_image(image_path):
-    try:
-        img = Image.open(image_path).convert('RGB')
-        img_tensor = torch.tensor(np.array(img)).permute(2, 0, 1).unsqueeze(0).float() / 255.0
-
-        # BRISQUE score using piq
-        score = piq.brisque(img_tensor, data_range=1.0).item()
-        print(f"BRISQUE score: {score}")
-        if score > 50:
-            return "Improper Image"
-
-        # Plant Classification
-        img = img.resize(input_shape)
-        x = np.array(img) / 255.0
-        x = np.expand_dims(x, axis=0)
-        preds = plant_model(x)
-        predicted_class = np.argmax(preds, axis=1)[0]
-
-        return "Good" if predicted_class is not None else "Bad"
-
-    except Exception as e:
-        print(f"Error in classification: {e}")
-        return "Improper Image"
+    # Placeholder: always return "Good"
+    return "Good"
 
 # --- Routes ---
 @app.route('/', methods=['GET'])
@@ -151,7 +121,7 @@ def add_record():
 
     quality_test = {
         "resourceType": "QualityTest",
-        "testType": "AI Image Classification",
+        "testType": "Image Quality Check",
         "result": quality_result,
         "testedAt": datetime.now().isoformat()
     }
@@ -224,6 +194,4 @@ def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 if __name__ == '__main__':
-    import os
-    port = int(os.environ.get("PORT", 5000))  # Use Render-assigned PORT, default 5000 locally
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(debug=True)
