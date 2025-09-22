@@ -1,11 +1,10 @@
 Flask
-Flask-Cors
 requests
-Pillow
+qrcode
 numpy
+Pillow
 tensorflow
 tensorflow-hub
-imquality
-qrcode
 werkzeug
 gunicorn
+git+https://github.com/badlogic/imquality.git
