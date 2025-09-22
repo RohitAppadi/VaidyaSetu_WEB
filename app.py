@@ -10,21 +10,21 @@ import uuid
 import requests
 import numpy as np
 from PIL import Image
-from skimage.metrics import structural_similarity as ssim
+import tensorflow as tf
+import tensorflow_hub as hub
 import torch
-import torchvision.transforms as transforms
-from torchvision.models import resnet18
+import piq
 
 app = Flask(__name__)
 app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
 
-# --- Upload settings ---
+# Allowed extensions for photo upload
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# --- Simple Blockchain ---
+# --- Simple Blockchain Implementation ---
 class Block:
     def __init__(self, index, timestamp, data, previous_hash):
         self.index = index
@@ -61,7 +61,7 @@ class Blockchain:
 
 blockchain = Blockchain()
 
-# --- QR code generation ---
+# --- QR Code generation ---
 def generate_qr_code(data):
     qr = qrcode.QRCode(
         version=1,
@@ -78,39 +78,36 @@ def generate_qr_code(data):
     import base64
     return base64.b64encode(img_io.getvalue()).decode('utf-8')
 
-# --- PyTorch model placeholder ---
-device = torch.device("cpu")
-model = resnet18(pretrained=True)
-model.eval()
+# --- AI Model Setup ---
+plant_model = hub.load("https://tfhub.dev/google/plant_village/efficientnet_b0/classifier/1")
+input_shape = (224, 224)
 
-transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-])
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def classify_herb_image(image_path):
     try:
         img = Image.open(image_path).convert('RGB')
+        img_tensor = torch.tensor(np.array(img)).permute(2, 0, 1).unsqueeze(0).float() / 255.0
 
-        # ---------- Step 1: Image Quality Check ----------
-        gray = np.array(img.convert('L'))
-        score = ssim(gray, gray) * 100  # dummy placeholder SSIM
-        if score < 50:
-            return "Poor Image Quality"
+        # BRISQUE score using piq
+        score = piq.brisque(img_tensor, data_range=1.0).item()
+        print(f"BRISQUE score: {score}")
+        if score > 50:
+            return "Improper Image"
 
-        # ---------- Step 2: Plant Classification ----------
-        img_t = transform(img).unsqueeze(0)
-        with torch.no_grad():
-            preds = model(img_t)
-        # Simple placeholder: if model outputs something, return Good
-        return "Good"
+        # Plant Classification
+        img = img.resize(input_shape)
+        x = np.array(img) / 255.0
+        x = np.expand_dims(x, axis=0)
+        preds = plant_model(x)
+        predicted_class = np.argmax(preds, axis=1)[0]
+
+        return "Good" if predicted_class is not None else "Bad"
+
     except Exception as e:
-        print(f"Classification error: {e}")
-        return "Error"
-
-# --- Helpers ---
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+        print(f"Error in classification: {e}")
+        return "Improper Image"
 
 # --- Routes ---
 @app.route('/', methods=['GET'])
@@ -125,7 +122,6 @@ def add_record():
     latitude = request.form.get("latitude")
     longitude = request.form.get("longitude")
     timestamp = request.form.get("timestamp")
-
     photo = request.files.get('photo')
 
     if not all([species, collector_id, location, latitude, longitude, timestamp]):
@@ -140,28 +136,46 @@ def add_record():
         photo.save(photo_path)
         quality_result = classify_herb_image(photo_path)
     else:
-        quality_result = "No Photo"
+        quality_result = "No Photo Provided"
 
     collection_event = {
         "resourceType": "CollectionEvent",
         "collectedBy": collector_id,
         "collectedAt": timestamp,
-        "location": {"name": location, "latitude": latitude, "longitude": longitude}
+        "location": {
+            "name": location,
+            "latitude": latitude,
+            "longitude": longitude
+        }
     }
+
     quality_test = {
         "resourceType": "QualityTest",
-        "testType": "Image Classification",
+        "testType": "AI Image Classification",
         "result": quality_result,
         "testedAt": datetime.now().isoformat()
     }
+
+    processing_step = {
+        "resourceType": "ProcessingStep",
+        "description": "Initial collection and quality check",
+        "timestamp": datetime.now().isoformat()
+    }
+
     record_data = {
         'species': species,
         'collectionEvent': collection_event,
         'qualityTest': quality_test,
+        'processingStep': processing_step,
         'photoFilename': filename
     }
 
-    new_block = Block(len(blockchain.chain), datetime.now(), record_data, blockchain.get_latest_block().hash)
+    new_block = Block(
+        index=len(blockchain.chain),
+        timestamp=datetime.now(),
+        data=record_data,
+        previous_hash=blockchain.get_latest_block().hash
+    )
     blockchain.add_block(new_block)
 
     flash(f"Record added successfully! Quality: {quality_result}", "success")
@@ -176,8 +190,8 @@ def generate_qr():
         base64_img = generate_qr_code(json_data["data"])
         return jsonify({'image_data': base64_img})
     except Exception as e:
-        print(f"QR generation error: {e}")
-        return jsonify({"error": "Failed"}), 500
+        print(f"Error generating QR code: {e}")
+        return jsonify({"error": "Failed to generate QR code"}), 500
 
 @app.route('/geocode', methods=['POST'])
 def geocode():
@@ -188,18 +202,21 @@ def geocode():
     try:
         with open("opencage_key.txt", "r") as f:
             API_KEY = f.read().strip()
-        url = "https://api.opencagedata.com/geocode/v1/json"
-        response = requests.get(url, params={"q": location, "key": API_KEY, "limit": 1})
-        if response.status_code != 200:
-            return jsonify({"error": "Geocoding failed"}), 500
-        results = response.json().get("results")
-        if not results:
-            return jsonify({"error": "No results"}), 400
-        geometry = results[0]["geometry"]
-        return jsonify({"lat": geometry["lat"], "lng": geometry["lng"]})
     except Exception as e:
-        print(f"Geocode error: {e}")
-        return jsonify({"error": "Failed"}), 500
+        return jsonify({"error": f"Could not read API key file: {e}"}), 500
+
+    url = "https://api.opencagedata.com/geocode/v1/json"
+    response = requests.get(url, params={"q": location, "key": API_KEY, "limit": 1})
+
+    if response.status_code != 200:
+        return jsonify({"error": "Geocoding API request failed"}), 500
+
+    results = response.json().get("results")
+    if not results:
+        return jsonify({"error": "Could not geocode location"}), 400
+
+    geometry = results[0]["geometry"]
+    return jsonify({"lat": geometry["lat"], "lng": geometry["lng"]})
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
