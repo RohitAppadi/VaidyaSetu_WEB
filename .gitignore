@@ -1,0 +1,17 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+.env
+venv/
+env/
+
+# Uploads folder (user photos)
+uploads/
+
+# IDE/editor files
+.vscode/
+
+# Logs
+*.log

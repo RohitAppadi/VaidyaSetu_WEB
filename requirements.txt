@@ -1,0 +1,10 @@
+Flask
+Flask-Cors
+requests
+Pillow
+numpy
+tensorflow
+tensorflow-hub
+imquality
+qrcode
+werkzeug
