@@ -8,3 +8,4 @@ tensorflow-hub
 imquality
 qrcode
 werkzeug
+gunicorn
