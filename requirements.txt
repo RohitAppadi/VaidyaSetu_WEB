@@ -7,4 +7,5 @@ tensorflow
 tensorflow-hub
 werkzeug
 gunicorn
-git+https://github.com/badlogic/imquality.git
+imquality
+
