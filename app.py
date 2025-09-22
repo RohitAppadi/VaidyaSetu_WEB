@@ -193,17 +193,18 @@ def generate_qr():
         print(f"Error generating QR code: {e}")
         return jsonify({"error": "Failed to generate QR code"}), 500
 
+# OpenCage geocoding API
 @app.route('/geocode', methods=['POST'])
 def geocode():
     data = request.get_json()
     location = data.get("location")
     if not location:
         return jsonify({"error": "Missing location"}), 400
-    try:
-        with open("opencage_key.txt", "r") as f:
-            API_KEY = f.read().strip()
-    except Exception as e:
-        return jsonify({"error": f"Could not read API key file: {e}"}), 500
+
+    # Read API key from environment variable
+    API_KEY = os.environ.get("OPENCAGE_KEY")
+    if not API_KEY:
+        return jsonify({"error": "OpenCage API key not set"}), 500
 
     url = "https://api.opencagedata.com/geocode/v1/json"
     response = requests.get(url, params={"q": location, "key": API_KEY, "limit": 1})
